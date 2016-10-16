@@ -1,0 +1,43 @@
+$(output)
+Output is turned off, so text can be entered
+as documentation.
+
+Define the Sieve of Erastothenes macro.  It
+takes one argument, a number.  The macro sends to the
+output a list of the primes less than or equal to
+that number.
+
+$(set (=sieve=)
+ (=$(let !i! !2!
+   )$(loop
+     (=$(if !$(i) > $(1)! (=$(break)=) )=)
+     (=$(let !a$(i)! !1!)=)
+     (=$(let !i! !$(i) + 1! )=)
+   )$(let !i! !2!
+   )$(loop
+     (=$(if !$(i) > $(1)! (=$(break)=) )=)
+     (=$(if !$(expand !$$(a$(i))! )!
+        (=$(let !j! !$(i)! 
+          )$(loop
+            (=$(let !j! !$(j) + $(i)! )=)
+            (=$(if !$(j) > $(1)! (=$(break)=) )=)
+            (=$(let !a$(j)! !0!)=) )=) )=)
+     (=$(let !i! !$(i) + 1! )=)
+   )$(let !i! !2!
+   )$(let !j! !0!
+   )$(loop
+     (=$(if !$(i) > $(1)! (=$(break)=) )=)
+     (=$(if !$(expand !$$(a$(i))! )!
+        (=$(i) $(let !j! !$(j) + 1! )=) )=)
+     (=$(if !$(j) = 5! (=$(let !j! !0! )
+=) )=)
+     (=$(let !i! !$(i) + 1! )=) )=)
+)
+
+Turn output to standard output back on, then print out primes
+between 1 and second argument.
+
+$(output !-!
+)$(if !$(null !$(2)! )!
+  (=usage: smac seive.txt <bound>=)
+  (=$(sieve !$(2)!)=) )

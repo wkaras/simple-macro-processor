@@ -1,0 +1,333 @@
+	      Simple Macro Processor 2.0
+		  User Documentation
+
+
+Copyright (c) 2016 Walter William Karas
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+HISTORY
+
+1.x versions of this program were written in straight C back in the late 1980s,
+to run within 640 Kbytes of memory under MS-DOS.  Version 2.0 is just
+minimal changes for C++11 and a non-stupid hash function.  Very ugly,
+needs lots of work, likely not be salvageable.
+
+USAGE
+
+smac arg1 arg2 ....
+
+The first argument is assumed to be the name of the primary
+input file to process.  If the first argument is -, input is
+taken from the standard input.  If smac is invoked with no
+arguments, input is taken from the standard input in this
+case as well.  By default, output goes to the standard output.
+Methods for redirecting the output and accessing all command
+line arguments are described below.
+
+SYNTAX
+
+All input text which is not part of a macro invocation is
+simply copied to the output.  The following syntax is used
+to invoke a macro:
+
+$(name arg1 arg2 ... )
+
+There can be no white space (blanks, tabs, and newlines)
+between the $ and the left parenthesis.  "name" is the
+name of the macro.  It can be preceeded by optional
+white space.  All characters except white space and the
+right parenthesis are allowed in macro names.  Macro
+names may not begin with a digit.  Macro names are case
+sensitive.  Any number of arguments, or no arguments at all,
+may be included in a macro invocation.  Each argument must
+be preceeded by at least one character of white space.  There
+are two type of macro arguments.  For the first type, the
+text of the argument is delimited by ! characters at the
+beginning and the end.  The text in this type of argument
+is expanded prior to being used in the expansion of the
+macro.  If a literal ! is required within the argument, this
+is specified by a double occurance (!!) of the character.  If
+a macro invocation appears within the argument, any ! characters
+contained withing it should not be doubled.  For example, the
+argument !!!$(byte !48+5!)! contains the text !5, after expansion.
+(The byte macro is described below).  For the second type
+of argument, the text is delimited by the characters (= at the
+beginning, and the characters =) at the end.  These delimiters
+nest.  For example, the text of the argument (=a(=b(=c=)d=)e=)
+ends with e, not with c.  The text of this type of argument is
+not expanded.  The final right parenthesis in the macro
+invocation can be preceeded by optional white space.  Undefined
+macros expand to the null string.
+
+Expressions of the form $(n) expand to command line arguments.
+n must be a non-negative integer.  $(0) expands to the name of
+the command.
+
+Whenever the sequence $( appears in the text, smac assumes it
+is the start of a macro invocation.  Smac translates the escape
+sequence $$( to $(.
+
+BUILT-INS
+
+The following macros are pre-defined by smac.
+
+set
+
+This macro is used to define new macros, or redefine
+existing ones.  It requires at least two arguments.
+The last argument is the body of the macro.  Normally,
+the body argument will be delimited with (= and =),
+so that the text of the body will not be expanded until the
+new macro is invoked.  Expressions of the form $(n), n a
+non-negative integer, expand to the nth argument given when
+the macro is invoked.  $(0) expands to the name of the invoked
+macro.  If the nth argument is not present, $(n) evaluates to
+the null string.  The other argument(s) to set must be legal
+macro names to associate with the body.  The set macro itself
+expands to the null string.  For example:
+
+$(set !append_a! !+a! (=$(1)a=) ) $(append_a !b!) $(+a !c!)
+
+expands to:
+
+ ba ca
+
+
+calc
+
+The calc macro requires exactly one argument, a numeric expresion.
+A numeric expression consists of positive integer operands, the
+binary operators or, and, >, <, >=, <=, =, <>, +, -, *, /, mod,
+in order of ascending precedence, and the unary operators not and
+- (unary + not allowed).  Parenthesis may be used to override the
+default precedence.  Boolean and relational operators return 1 for
+true, 0 for false.  For example:
+
+$(set !n! !m! !2!) $(calc !$(n)*$(m) + 2!)
+
+expands to:
+
+ 6
+
+
+let
+
+$(let arg1 ... argn) is equivalent to $(set arg1 ... !$(calc argn)!).
+The last argument (argn) must be a numeric expresion, as described
+in the section on the calc macro.
+
+expand
+
+The expand macro requires exactly one argument.  It expands
+the text of the argument.  For example:
+
+$(set !a! (=x=))$(set !x! (=$(a=))$(set !y! !)!) $(expand !$(x)$(y)!)
+
+expands to:
+
+ x
+
+
+if
+
+The if macro requires two or three arguments.  The first argument
+must be a numeric expression, as described in the section on
+the calc macro.  If the expression evaluates to a non-zero value,
+the second argument is expanded and becomes the result of the
+if macro.  If there is a third argument, and the expression
+evalueates to 0, it is expanded and becomes the result.  For
+example:
+
+$(set !n! !3!) $(if !$(n) < 5!
+                (=$(set !n! !$(calc !$(n)+1!)!)=)) $(n)
+
+expands to:
+
+4
+
+
+repeat
+
+The repeat macro requires exactly two arguments.  The first
+argument can be any string.  The second argument must be a
+numeric expression, as described in the section on the calc
+macro.  The second argument, when evaluted, gives the number
+of times to copy the first argument to the output.  For
+example:
+
+$(repeat ! Judy! !(2 + 1)!)
+
+expands to :
+
+ Judy Judy Judy
+
+
+null
+
+The null macro requires exaclty one argument.  It returns 1 if
+this argument is empty, otherwise it returns 0.  For example:
+
+$(null !!) $(null ! !)
+
+expands to:
+
+1 0
+
+
+index
+
+The index macro requires exactly two arguments.  It searches
+for the first occurrance of the first argument in the second
+argument.  It the search fails, 0 is returned.  If it
+succeeds, the (1-base) offset of the first matching character
+is returned.  For example:
+
+$(index !quick! !The quick brown fox!)
+
+expands to:
+
+5
+
+
+length
+
+The length macro requires exactly one argument.  It returns the
+number of characters in the argument.  For example:
+
+$(length !abc!)
+
+expands to:
+
+3
+
+
+substring
+
+The substring macro requires two or three arguments.  The first
+argument is the string to extract a substring from.  The second
+argument must be a numeric expression, as described in the
+section on the calc macro.  It specifies the (1-base) relative
+offset of the first character to extract.  If no third argument
+is specified, all characters from this character to the
+end of the string are returned as the substring.  If the
+third argument is present, it must be a numeric expression
+specifying the number of characters to extract.  For example:
+
+$(substring !The quick brown fox! !5! !9 - 5 + 1!)
+
+expands to:
+
+quick
+
+
+loop, break
+
+The loop macro requires at least one argument.  It repeatedly
+expands its arguments, until it expands an argument in which
+the break macro has been invoked.  For example:
+
+$(set !n! !1!)$(loop
+               (=$(if !$(n) > 4! (=$(break)=) )=)
+               (=$(set !n! !$(calc !$(n)+1!)! )=) ) $(n)
+
+expands to:
+
+5
+
+
+numeric
+
+The numeric macro requires exactly one argument.  It returns
+the machine-dependent numeric code for the first character
+in the argument.  For example:
+
+$(numeric !01!)
+
+expands to:
+
+48
+
+
+byte
+
+The byte macro requires exactly one argument, a numeric
+expression as described in the section on the calc macro.
+It returns a single character which is associated in a
+machine-dependent way with the number resulting from
+the numeric expression.  For example (on a computer
+using the ASCII character code):
+
+$(byte !48 + 2!)
+
+expands to:
+
+2
+
+
+string_compare
+
+The string_compare macro requires exactly three arguments.
+The first and third arguments are the strings to compare.
+The second argument is the relational operator to apply to
+the strings.  The relational operator can be =, <>, >, <,
+>= or <=.  The results of the relational operations a
+determined based on standard alphabetic ordering.  1 is
+returned if the relation is true, otherwise 0 is returned.
+For example:
+
+$(string_compare !aaa! !<=! !aab!)
+
+expands to:
+
+1
+
+
+error
+
+The error macro generates an error condition and halts the
+processing of the input.  It requires exactly 1 argument.
+This argument should be a string explaining the cause of
+the error.  For example:
+
+$(set !divisor! !0!)
+$(if !$(divisior) = 0! (=$(error !divisor is zero!)=) )
+
+when expanded, causes an error.
+
+
+include
+
+The include macro requires exactly 1 argument.  This argument
+should be the name of a file to incorporate into the input.
+The argument - causes the standard input to be incoporated into
+the input.
+
+
+output
+
+The output macro requires exactly 1 argument.  This argument
+is the name of a file to contain all succeeding output.  The
+current contents of the file are erased.  The argument - causes
+output to be directed to the standard output.
+
+
+append
+
+The append macro requires exactly 1 argument.  This argument
+is the name of a file to contain all succeeding output.  The
+output is appended to the current contents of the file.  The
+argument - causes output to be directed to the standard output.
