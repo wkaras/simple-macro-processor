@@ -41,13 +41,7 @@ extern int mcr_n_result;
 
 #endif
 
-
-/*
-  initialization function.  init_str_alloc() must
-  be called before this function.
-*/
-const char *mcr_init(void);
-
+using Mcr_built_in_func = const char *(*)(int n_arg,const char **arg);
 
 /*
   define a macro

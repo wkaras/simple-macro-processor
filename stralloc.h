@@ -27,11 +27,6 @@ SOFTWARE.
 #include <stdlib.h>
 
 /*
-  initialize for string allocation
-*/
-inline void init_str_alloc(void) { }
-
-/*
   allocate a string.  returns null if cannot allocate string.
 */
 inline char *str_alloc

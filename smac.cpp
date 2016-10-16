@@ -222,16 +222,6 @@ int main
     int rv;
 
 
-    init_str_alloc();
-
-    /* initialize macro processor */
-    msg = mcr_init();
-    if (msg != (const char *) 0)
-      {
-        fprintf(stderr,"%s\n",msg);
-        return(-1);
-      }
-
     /* define the builtin macros */
     msg = def_builtins();
     if (msg != (const char *) 0)

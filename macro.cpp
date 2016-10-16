@@ -29,36 +29,107 @@ SOFTWARE.
 #endif
 
 #include <string.h>
-#include <limits.h>
-#include "symtab.h"
+#include <limits.h> // defined INT_MAX
+#include <unordered_map>
+#include <string>
+#include <utility>
+
 #include "stralloc.h"
 
 #define MCR_FILE
 #include "macro.h"
 
-/* number of macros allowed */
-#define MAX_MACROS 256 
-
-/* symbol table for definitions */
-static SYM_TAB_STRUCT mcr_tab_storage;
-static SYM_TAB mcr_tab = &mcr_tab_storage;
-
 /* records defining macro type and body */
-typedef struct
+class Macro_value
   {
-    /* if magic > 0, value of macro is a string.  
-       magic is length reserved for value including null at end.
-       if magic = 0 value is a pointer to magic function */
-    int magic;
-    /* pointer to string or function */
-    void *body;
-  }
-MCR_VAL;
+  private:
 
-/* heap of macro value records */
-static MCR_VAL mcr_val_heap[MAX_MACROS];
-/* next free record in heap */
-static int mcr_val_free;
+    bool has_string_;
+
+    union
+      {
+        const char *c_string_;
+        Mcr_built_in_func bi_func_ptr_;
+      };
+
+    void clear_c_string()
+      {
+        if (has_string_)
+          delete [] c_string_;
+      }
+
+    void set_c_string(const char *cs)
+      {
+        char *tcs = new char [strlen(cs) + 1];
+
+        strcpy(tcs, cs);
+
+        c_string_ = tcs;
+
+        has_string_ = true;
+      }
+
+  public:
+
+    Macro_value() : has_string_(false) { }
+
+    Macro_value(const char *c_str)
+      {
+        set_c_string(c_str);
+      }
+
+    Macro_value(Mcr_built_in_func bi) : has_string_(false)
+      {
+        bi_func_ptr_ = bi;
+      }
+
+    ~Macro_value()
+      {
+        clear_c_string();
+      }
+
+    Macro_value(const Macro_value &src) = delete;
+
+    Macro_value(Macro_value &&src) : has_string_(src.has_string_)
+      {
+        if (has_string_)
+          {
+            c_string_ = src.c_string_;
+            src.has_string_ = false;
+          }
+        else
+          bi_func_ptr_ = src.bi_func_ptr_;
+      }
+
+    void operator = (const Macro_value &src) = delete;
+
+    void operator = (Macro_value &&src) = delete;
+
+    bool has_string() const { return(has_string_); }
+
+    const char * c_string() const { return(c_string_); }
+
+    void c_string(const char *cs)
+      {
+        clear_c_string();
+
+        set_c_string(cs);
+      }
+
+    Mcr_built_in_func bi_func_ptr() const { return(bi_func_ptr_); }
+
+    void bi_func_ptr(Mcr_built_in_func bifp)
+      {
+        clear_c_string();
+
+        has_string_ = false;
+        bi_func_ptr_ = bifp;
+      }
+  };
+
+using SYM_TAB = std::unordered_map<std::string, Macro_value>;
+
+static SYM_TAB sym_tab;
 
 /* success return value for functions */
 #define SUCCESS ((const char *) 0)
@@ -81,24 +152,6 @@ static int mcr_val_free;
 
 
 /*
-  initialization function.  init_str_alloc() must
-  be called before this function.
-*/
-const char *mcr_init(void)
-  {
-    /* initialize symbol table */
-    if (init_sym_tab(&mcr_tab,MAX_MACROS) != S_SYM_TAB_GOOD)
-      /* could not allocate space */
-      return("cannot allocate space for macro symbol table");
-
-    /* initialize macro value heap */
-    mcr_val_free = 0;
-
-    return(SUCCESS);
-  }
-
-
-/*
   define a macro
 */
 const char *mcr_def
@@ -118,9 +171,7 @@ const char *mcr_def
     int mgc
   )
   {
-    MCR_VAL *mvp;
     const char *p;
-
 
     /* check name */
     p = name;
@@ -135,56 +186,36 @@ const char *mcr_def
         return("macro name cannot contain right delimeter for invocation");
     while (*(++p) != (char) '\0');
 
-    if (mcr_val_free == MAX_MACROS)
-      /* too many macros defined */
-      return("number of macros defined exceeds maximum");
+    SYM_TAB::iterator i = sym_tab.find(name);
 
-    mvp = mcr_val_heap + (mcr_val_free++);
-    /* set length to zero for newly allocated record */
-    mvp->magic = 0;
-
-    switch(insert_sym(mcr_tab,name,(void *) mvp))
+    if ((mgc != 0) and ! *static_cast<char *>(mval))
       {
-        case S_SYM_TAB_GOOD:
-          break;
+        // Macro is being deleted by setting it to the empty string.
 
-        case S_SYM_TAB_ALLOC:
-          return("cannot allocate space for macro");
+        if (i != sym_tab.end())
+          sym_tab.erase(i);
 
-        case S_SYM_TAB_DUP:
-          /* get value record for old definition
-             (body of old definition will become garbage) */
-          {
-            void *v;
-
-            (void) lookup_sym(mcr_tab,name,&v);
-            mvp = (MCR_VAL *) v;
-            /* return allocated value record to heap */
-            mcr_val_free--;
-          }
-          break;
+        return(SUCCESS);
       }
 
-    if (mgc == 0)
-      /* magic macro */
+    if (i == sym_tab.end())
       {
-        mvp->body = mval;
-        mvp->magic = 0;
+        // New macro name.
+        //
+        if (mgc != 0)
+          i = sym_tab.emplace(name, static_cast<const char *>(mval)).first;
+        else
+          i = sym_tab.emplace(name,
+                              reinterpret_cast<Mcr_built_in_func>(mval)).first;
       }
     else
-      /* value is string */
       {
-        int i;
-
-        /* if new value is longer than area pointed-to by body,
-           allocate new area.  old area becomes garbage. */
-        i = strlen((const char *) mval) + 1;
-        if (i > mvp->magic)
-          {
-            mvp->body = (void *) str_alloc(i);
-            mvp->magic = i;
-          }
-        (void) strcpy((char *) (mvp->body),(const char *) mval);
+        // Macro already exists, change it's value.
+        //
+        if (mgc != 0)
+          i->second.c_string(static_cast<const char *>(mval));
+        else
+          i->second.bi_func_ptr(reinterpret_cast<Mcr_built_in_func>(mval));
       }
 
     return(SUCCESS);
@@ -196,9 +227,14 @@ const char *mcr_def
 */
 void mcr_dump(void)
   {
-    dump_sym_tab(mcr_tab);
-
-    return;
+    for (SYM_TAB::const_iterator i = sym_tab.cbegin(); i != sym_tab.cend();
+         ++i)
+      if (i->second.has_string())
+        printf("%s / %s\n", i->first.c_str(), i->second.c_string());
+      else
+        printf(
+          "%s / BUILTIN func addr = 0x%lx\n", i->first.c_str(),
+          reinterpret_cast<unsigned long>(i->second.bi_func_ptr()));
   }
 
 /* structures for evaluation */
@@ -347,7 +383,7 @@ static unsigned int arg_no;
 
 /* body of macro which is "evaluated" when an 
    undefined macro is referenced */
-const MCR_VAL mcr_empty = { 1, (void *) "" };
+const Macro_value mcr_empty("");
 
 
 /*
@@ -602,24 +638,22 @@ const char *mcr_next_char
           else if (c == RIGHT_DELIM)
             /* macro invocation completed; time to evaluate it */
             {
-              const char *p,*rv;
-	      const MCR_VAL *to_eval;
-	      void *vp;
-
-
               if (nest == (MAX_NEST - 1))
                 return("macro nesting level too deep");
 
               /* lookup name */
-              if (lookup_sym(mcr_tab,(next_ep->arg)[0],&vp)
-                    == S_SYM_TAB_NO_SYM)
-                /* translate to empty string */
+              auto i = sym_tab.find(next_ep->arg[0]);
+
+	      const Macro_value *to_eval;
+
+              if (i == sym_tab.end())
                 to_eval = &mcr_empty;
               else
-                /* save definition for later evaluation */
-                to_eval = (MCR_VAL *) vp;
+                to_eval = &(i->second);
 
-              if (to_eval->magic > 0)
+              const char *p,*rv;
+
+              if (to_eval->has_string())
                 /* normal evaluation */
                 {
                   /* finalize record for macro evaluation */
@@ -627,7 +661,7 @@ const char *mcr_next_char
                   next_ep->select = ep->select;
                   next_ep->arg_eval = 0;
 
-                  p = (const char *) to_eval->body;
+                  p = to_eval->c_string();
 
                   /* now evaluating the macro body, make its evaluation
                      stack record current */
@@ -683,9 +717,8 @@ const char *mcr_next_char
                   print_es_rec();
 
 #endif
-                  rv = (*((const char *((*)(int,const char **)))
-                         (to_eval->body)))
-                           ((tmp_ep + 1)->n_arg,(tmp_ep + 1)->arg);
+                  rv = (to_eval->bi_func_ptr())(
+                         (tmp_ep + 1)->n_arg,(tmp_ep + 1)->arg);
                   if (rv != SUCCESS)
                     return(rv);
 
